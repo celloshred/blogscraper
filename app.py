@@ -1,7 +1,3 @@
-# Complete Render Deployment Package
-
-## app.py
-```python
 from flask import Flask, request, jsonify
 import os, json, requests
 from bs4 import BeautifulSoup
@@ -119,55 +115,3 @@ def scrape():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-```
-
-## requirements.txt
-```
-Flask==3.0.3
-gunicorn==21.2.0
-gspread==6.1.2
-google-auth==2.34.0
-requests==2.32.3
-beautifulsoup4==4.12.3
-```
-
-## Procfile (if needed)
-```
-web: gunicorn app:app
-```
-
-## Render Deployment Settings
-
-**Build Command:**
-```
-pip install -r requirements.txt
-```
-
-**Start Command:**
-```
-gunicorn app:app
-```
-
-**Environment Variables:**
-- `GOOGLE_CREDS` = Your complete service account JSON (paste the entire JSON as one value)
-
-## Key Improvements Made
-
-1. **Fixed gspread compatibility** - Removed deprecated methods
-2. **Better error handling** - Specific exceptions for different failure types
-3. **Enhanced logging** - Detailed print statements for debugging
-4. **Robust article extraction** - Multiple CSS selectors to find titles
-5. **Health check endpoint** - GET / returns service status
-6. **Authentication validation** - Checks if Google auth worked on startup
-7. **Request logging** - Prints incoming parameters for debugging
-8. **Body length limiting** - Prevents extremely long text from causing issues
-
-## Testing the Deployment
-
-After deploying to Render:
-
-1. **Test health check:** Visit your Render URL - should show `{"status": "healthy"}`
-2. **Check logs** for authentication success message
-3. **Test with your Apps Script** - the 500 error should be resolved
-
-The enhanced error handling and logging will help you troubleshoot any remaining issues much more effectively.
