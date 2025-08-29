@@ -28,9 +28,14 @@ def scrape():
         posts.append([title, body, date, blog_url])
 
     # Connect to Google Sheets
-    creds = Credentials.from_service_account_file("service.json", scopes=[
-        "https://www.googleapis.com/auth/spreadsheets"
-    ])
+  import os, json
+from google.oauth2.service_account import Credentials
+
+creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+creds = Credentials.from_service_account_info(creds_dict, scopes=[
+    "https://www.googleapis.com/auth/spreadsheets"
+])
+
     client = gspread.authorize(creds)
 
     sh = client.open_by_key(spreadsheet_id)
