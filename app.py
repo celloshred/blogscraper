@@ -1,87 +1,65 @@
 from flask import Flask, request, jsonify
-import os, json, traceback
-import requests
+import os, json, requests
 from bs4 import BeautifulSoup
 import gspread
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
-def _gs_client():
-    creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
-    creds = Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    return gspread.authorize(creds)
-
-def _ensure_ws(sh, name, cols=4):
-    ws = sh.worksheet(name) if name in [w.title for w in sh.worksheets()] else sh.add_worksheet(name, rows=100, cols=cols)
-    if ws.row_count == 0:
-        ws.resize(rows=100, cols=cols)
-    if ws.get_all_values() == [] or ws.get_last_row() == 0:
-        ws.update("A1:D1", [["Title","Body","Date","URL"]])
-    else:
-        # ensure header exists
-        vals = ws.get_values("A1:D1")
-        if not vals or not vals[0] or vals[0][0] != "Title":
-            ws.update("A1:D1", [["Title","Body","Date","URL"]])
-    return ws
+# --- Auth from env (Render Environment Variable GOOGLE_CREDS) ---
+creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+creds = Credentials.from_service_account_info(
+    creds_dict, scopes=["https://www.googleapis.com/auth/spreadsheets"]
+)
+gc = gspread.authorize(creds)
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
     try:
-        data = request.get_json(force=True, silent=True) or {}
-        blog_url = data.get("blog_url", "").strip()
-        spreadsheet_id = data.get("spreadsheet_id", "").strip()
-        max_posts = int(data.get("max_posts", 5))
+        data = request.get_json(force=True)
+        blog_url       = data.get("blog_url")
+        spreadsheet_id = data.get("spreadsheet_id")
+        limit          = int(data.get("limit", 5))  # cap how many posts we load
 
         if not blog_url or not spreadsheet_id:
-            return jsonify({"error":"missing_params"}), 400
+            return jsonify({"error": "Missing blog_url or spreadsheet_id"}), 400
 
-        # Fetch page
-        r = requests.get(blog_url, timeout=25, headers={"User-Agent":"Mozilla/5.0"})
+        # --- fetch page ---
+        r = requests.get(
+            blog_url,
+            timeout=30,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; blog-scraper/1.0)"}
+        )
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
+        # --- extract posts (very simple example; adjust selectors to your site) ---
         posts = []
+        for art in soup.select("article")[:limit]:
+            title = art.find("h1") or art.find("h2")
+            title = title.get_text(strip=True) if title else "Untitled"
+            body  = art.get_text(" ", strip=True)
+            date  = ""
+            posts.append([title, body, date, blog_url])
 
-        # Prefer multiple <article> blocks; fallback to single post
-        articles = soup.select("article")
-        if not articles:
-            # single post fallback (H1 + content)
-            h1 = soup.find(["h1","h2"])
-            body_node = soup.find(attrs={"class":lambda x: x and "content" in x.lower()}) or soup.find("main") or soup
-            title = h1.get_text(strip=True) if h1 else "Untitled"
-            body = body_node.get_text(" ", strip=True)[:8000]
-            posts.append([title, body, "", blog_url])
-        else:
-            for art in articles[:max_posts]:
-                title = "Untitled"
-                h2 = art.find(["h1","h2","h3"])
-                if h2:
-                    title = h2.get_text(strip=True)
-                # strip scripts/navs
-                for t in art.find_all(["script","style","nav","form"]):
-                    t.decompose()
-                body = art.get_text(" ", strip=True)[:8000]
-                posts.append([title, body, "", blog_url])
-
-        # Write to Google Sheets
-        gc = _gs_client()
+        # --- write to Sheets with gspread (no get_last_row here) ---
         sh = gc.open_by_key(spreadsheet_id)
-        ws = _ensure_ws(sh, "Source")
-        if len(posts):
-            ws.append_rows(posts, value_input_option="RAW")
+        try:
+            ws = sh.worksheet("Source")
+        except gspread.exceptions.WorksheetNotFound:
+            ws = sh.add_worksheet(title="Source", rows=200, cols=4)
 
-        return jsonify({"status":"ok", "count": len(posts)}), 200
+        # clear then write header and rows
+        ws.clear()
+        ws.update("A1:D1", [["Title", "Body", "Date", "URL"]])
+        if posts:
+            ws.update(f"A2:D{1+len(posts)}", posts)
+
+        return jsonify({"status": "ok", "count": len(posts)})
 
     except Exception as e:
-        # Log server-side to help debugging
-        print("SERVER_ERROR:", str(e))
-        print(traceback.format_exc())
-        return jsonify({"error":"server_error", "detail": str(e)}), 500
+        # bubble a clean error message so your Apps Script can log it
+        return jsonify({"error": str(e), "server_error": True}), 500
 
 if __name__ == "__main__":
-    # Render uses gunicorn; this is for local test only.
     app.run(host="0.0.0.0", port=5000)
