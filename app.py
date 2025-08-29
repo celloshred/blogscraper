@@ -63,9 +63,26 @@ def scrape():
             
             title = h.get_text(strip=True) if h else f"Post {i+1}"
             body = art.get_text(" ", strip=True)[:500]  # Limit body length
+            
+            # Extract individual post URL
+            post_url = blog_url  # fallback to main blog URL
+            
+            # Look for links in the article
+            link = (art.find("a", href=True) or 
+                   (h.find("a", href=True) if h else None))
+            
+            if link and link.get("href"):
+                href = link["href"]
+                # Make relative URLs absolute
+                if href.startswith("/"):
+                    from urllib.parse import urljoin
+                    post_url = urljoin(blog_url, href)
+                elif href.startswith("http"):
+                    post_url = href
+            
             date = ""  # Could extract date if needed
-            posts.append([title, body, date, blog_url])
-            print(f"Extracted post {i+1}: {title[:50]}...")
+            posts.append([title, body, date, post_url])
+            print(f"Extracted post {i+1}: {title[:50]}... URL: {post_url}")
 
         print(f"Successfully extracted {len(posts)} posts")
 
